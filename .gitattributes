@@ -1,0 +1,7 @@
+
+* text=auto eol=lf
+
+# Fichiers binaires : à ne jamais convertir.
+*.png binary
+*.jpg binary
+*.ico binary

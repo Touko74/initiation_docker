@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Boutique - gestion des produits</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { margin-bottom: .2rem; }
+    .discret { color: #666; font-size: .9rem; }
+    .etat { padding: .7rem 1rem; border-radius: 6px; margin: 1rem 0; font-weight: bold; }
+    .ok { background: #e0f2f1; color: #00695c; }
+    .ko { background: #fdecea; color: #b71c1c; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { text-align: left; padding: .4rem; border-bottom: 1px solid #ddd; }
+    td.num, th.num { text-align: right; }
+    .stock-bas { color: #b71c1c; font-weight: bold; }
+    form { display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr; gap: .5rem; }
+    input, button { padding: .5rem; font: inherit; }
+    button { cursor: pointer; }
+    form button { grid-column: span 2; }
+    td button { padding: .2rem .5rem; font-size: .85rem; margin-left: .2rem; }
+    #recherche { width: 100%; box-sizing: border-box; }
+    #message { color: #b71c1c; min-height: 1.2rem; }
+  </style>
+</head>
+<body>
+  <h1>Boutique</h1>
+  <p class="discret">Gestion des produits du magasin (données fictives)</p>
+
+  <div id="etat" class="etat ko">Base : ...</div>
+  <p class="discret">Cette page est servie par le conteneur : <strong id="conteneur">...</strong></p>
+
+  <h2>Produits <span id="total" class="discret"></span></h2>
+  <input id="recherche" type="search" placeholder="Rechercher un produit ou une catégorie...">
+  <table>
+    <thead>
+      <tr><th>Nom</th><th>Catégorie</th><th class="num">Prix</th><th class="num">Stock</th><th></th></tr>
+    </thead>
+    <tbody id="liste"><tr><td colspan="5">Chargement...</td></tr></tbody>
+  </table>
+
+  <h2 id="titre-form">Ajouter un produit</h2>
+  <form id="formulaire">
+    <input name="nom" placeholder="Nom (ex. Cahier A5)" required>
+    <input name="categorie" placeholder="Catégorie (ex. Papeterie)" required>
+    <input name="prix" type="number" step="0.01" min="0" placeholder="Prix (€)" required>
+    <input name="stock" type="number" step="1" min="0" placeholder="Stock" required>
+    <button type="submit" id="bouton-valider">Ajouter</button>
+    <button type="button" id="bouton-annuler" hidden>Annuler la modification</button>
+  </form>
+  <p id="message"></p>
+
+  <script>
+    const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+    const formulaire = document.getElementById("formulaire");
+    const message = document.getElementById("message");
+    let produits = [];
+    let idEnEdition = null;
+
+    function afficherListe() {
+      const liste = document.getElementById("liste");
+      document.getElementById("total").textContent = "(" + produits.length + ")";
+      liste.innerHTML = "";
+      if (produits.length === 0) {
+        liste.innerHTML = '<tr><td colspan="5">Aucun produit.</td></tr>';
+        return;
+      }
+      for (const p of produits) {
+        const ligne = document.createElement("tr");
+        const valeurs = [
+          [p.nom, ""],
+          [p.categorie, ""],
+          [euro.format(p.prix), "num"],
+          [p.stock, "num" + (p.stock <= 5 ? " stock-bas" : "")],
+        ];
+        for (const [texte, classe] of valeurs) {
+          const cellule = document.createElement("td");
+          cellule.textContent = texte;
+          cellule.className = classe;
+          ligne.appendChild(cellule);
+        }
+        const actions = document.createElement("td");
+        actions.className = "num";
+        const modifier = document.createElement("button");
+        modifier.textContent = "Modifier";
+        modifier.onclick = () => commencerEdition(p);
+        const supprimer = document.createElement("button");
+        supprimer.textContent = "Supprimer";
+        supprimer.onclick = () => supprimerProduit(p);
+        actions.append(modifier, supprimer);
+        ligne.appendChild(actions);
+        liste.appendChild(ligne);
+      }
+    }
+
+    async function rafraichir() {
+      const sante = await fetch("/api/sante").then((r) => r.json());
+      const etat = document.getElementById("etat");
+      etat.textContent = "Base : " + sante.base;
+      etat.className = "etat " + (sante.base === "connectée" ? "ok" : "ko");
+      document.getElementById("conteneur").textContent = sante.conteneur;
+
+      const q = document.getElementById("recherche").value.trim();
+      const reponse = await fetch("/api/produits?q=" + encodeURIComponent(q));
+      if (!reponse.ok) {
+        document.getElementById("liste").innerHTML =
+          '<tr><td colspan="5">Pas de base de données : rien à afficher pour l\'instant.</td></tr>';
+        return;
+      }
+      produits = await reponse.json();
+      afficherListe();
+    }
+
+    function commencerEdition(p) {
+      idEnEdition = p.id;
+      for (const champ of ["nom", "categorie", "prix", "stock"]) formulaire.elements[champ].value = p[champ];
+      document.getElementById("titre-form").textContent = "Modifier : " + p.nom;
+      document.getElementById("bouton-valider").textContent = "Enregistrer";
+      document.getElementById("bouton-annuler").hidden = false;
+      formulaire.elements.nom.focus();
+    }
+
+    function finirEdition() {
+      idEnEdition = null;
+      formulaire.reset();
+      document.getElementById("titre-form").textContent = "Ajouter un produit";
+      document.getElementById("bouton-valider").textContent = "Ajouter";
+      document.getElementById("bouton-annuler").hidden = true;
+    }
+
+    async function supprimerProduit(p) {
+      if (!confirm('Supprimer "' + p.nom + '" ?')) return;
+      const reponse = await fetch("/api/produits/" + p.id, { method: "DELETE" });
+      message.textContent = reponse.ok ? "" : "Suppression impossible.";
+      if (idEnEdition === p.id) finirEdition();
+      rafraichir();
+    }
+
+    formulaire.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const donnees = Object.fromEntries(new FormData(formulaire));
+      const url = idEnEdition ? "/api/produits/" + idEnEdition : "/api/produits";
+      const reponse = await fetch(url, {
+        method: idEnEdition ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(donnees),
+      });
+      if (reponse.ok) {
+        message.textContent = "";
+        finirEdition();
+      } else {
+        const erreur = await reponse.json();
+        message.textContent = "Impossible d'enregistrer : " + erreur.erreur;
+      }
+      rafraichir();
+    });
+
+    document.getElementById("bouton-annuler").addEventListener("click", finirEdition);
+    document.getElementById("recherche").addEventListener("input", rafraichir);
+
+    rafraichir();
+    setInterval(rafraichir, 5000);
+  </script>
+</body>
+</html>
